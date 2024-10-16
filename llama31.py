@@ -35,13 +35,13 @@ class llamaConfig: #model args
         assert self.n_heads % self.n_kv_heads == 0
         assert self.dim % self.n_heads == 0, "Make Sure to use NICE numbers to be distributed among Heads!"
 
-#=======================================================================================
+#===============================ROOT MEAN SQR LAYER NORM================================
 class RMSNORM(nn.Module):
     pass
-#=======================================================================================
+#====================================BLOCK==============================================
 class BLOCK(nn.Module):
     pass
-
+#====================================LLAMA WRAPPER======================================
 class LLama(nn.Module):
     def __init__(self, config, model, tokenizer):
         self.model = model

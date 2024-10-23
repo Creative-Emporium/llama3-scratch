@@ -39,6 +39,7 @@ class llamaConfig: #model args
 #===============================ROOT MEAN SQR LAYER NORM================================
 class RMSNORM(nn.Module):
     def __init__(self, dim, eps=1e-6): #eps to evoid division by zero
+        super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
     def _norm(self,x):

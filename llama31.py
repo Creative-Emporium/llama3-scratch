@@ -6,6 +6,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.functional as F 
+import math
 #==================== let the fun begins ======================================
 #==================== Model Arguments ======================================
 @dataclass
@@ -37,8 +38,28 @@ class llamaConfig: #model args
 
 #===============================ROOT MEAN SQR LAYER NORM================================
 class RMSNORM(nn.Module):
-    pass
-#====================================BLOCK==============================================
+    def __init__(self, dim, eps=1e-6): #eps to evoid division by zero
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+    def _norm(self,x):
+        return torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+    def forward(self, x):
+        out = self._norm(x)
+    
+class RMSNorm(torch.nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+
+    #====================================BLOCK==============================================
 class BLOCK(nn.Module):
     pass
 #====================================LLAMA WRAPPER======================================
@@ -61,5 +82,8 @@ class LLama(nn.Module):
         pass
     
     def text_completion():
+        pass
+    
+    def chat_completion():
         pass
     

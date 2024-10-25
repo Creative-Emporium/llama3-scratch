@@ -58,7 +58,13 @@ class RMSNorm(nn.Module):
         #Returns this tensor cast to the type of the given tensor. Equivalent to self.type(tensor.type())
         out = self._norm(float(x)).type_as(x)
         return out * self.weights
+# ----------------------------------attention---------------------------------------------------
+class Attention:
+    pass
 
+# ----------------------------------FFN ---------------------------------------------------
+class FeedForward(nn.module):
+    pass
 # ----------------------------------Block---------------------------------------------------
 class Block(nn.module):
     def __inint__(self, args: ModelArgs):

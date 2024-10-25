@@ -59,7 +59,7 @@ class RMSNorm(nn.Module):
         out = self._norm(float(x)).type_as(x)
         return out * self.weights
 # ----------------------------------attention---------------------------------------------------
-class Attention:
+class Attention(nn.Module):
     pass
 
 # ----------------------------------FFN ---------------------------------------------------

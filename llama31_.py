@@ -75,7 +75,6 @@ class Block(nn.module):
         h = x + self.attention(self.attention_norm(x, start_pos, freqs_cis, mask))
         out = h + self.mlp(self.mlp_norm(x))
         return out
-        
 # ----------------------------------Main TF---------------------------------------------------
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):

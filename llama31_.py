@@ -63,8 +63,24 @@ class Attention(nn.Module):
     pass
 
 # ----------------------------------FFN ---------------------------------------------------
-class FeedForward(nn.module):
-    pass
+class FeedForward(nn.module): #acts like a map k:v where k is the input text n v is the distribution over the output vocab!
+    def __init__(
+        self,
+        dim,
+        hidden_dim,
+        multiple_of,
+        ffn_dim_multiplier):
+        super().__init__()
+        hidden_dim = int(2 * hidden_dim / 3) #ffn 2/3 network
+        if ffn_dim_multiplier is not None:
+            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
+        hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of) #to make it NICE num
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+        
+    def forward(self, x):
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
 # ----------------------------------Block---------------------------------------------------
 class Block(nn.module):
     def __inint__(self, args: ModelArgs):

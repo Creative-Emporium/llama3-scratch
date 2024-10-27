@@ -62,8 +62,13 @@ class RMSNorm(nn.Module):
 class Attention(nn.Module):
     pass
 
-# ----------------------------------FFN ---------------------------------------------------
+# ----------------------------------FFN---------------------------------------------------
 class FeedForward(nn.module): #acts like a map k:v where k is the input text n v is the distribution over the output vocab!
+    """Because reaching a given parameter count (e.g. 2B) with a given embedding size (e.g. 2048) you need 
+    to pick between lots of blocks (deeper network) with "lighter" mlps, or fewer blocks with wider MLPs.
+    The advantage of fewer layers with small(-ish) embedding size is the less memory is spent for kv (context) cache,
+    and less compute spent on attention for long contexts.
+    """
     def __init__(
         self,
         dim,

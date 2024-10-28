@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
-from tokenizer import Tokenizer
+#from tokenizer import Tokenizer
 
 # -------------------------------------MODEL ARGUMENTS ----------------------------------------
 @dataclass
@@ -124,7 +124,7 @@ class Attention(nn.Module):
         proj = self.wo(output)
         return proj     
 # ----------------------------------FFN---------------------------------------------------
-class FeedForward(nn.module): #acts like a map k:v where k is the input text n v is the distribution over the output vocab!
+class FeedForward(nn.Module): #acts like a map k:v where k is the input text n v is the distribution over the output vocab!
     """Because reaching a given parameter count (e.g. 2B) with a given embedding size (e.g. 2048) you need 
     to pick between lots of blocks (deeper network) with "lighter" mlps, or fewer blocks with wider MLPs.
     The advantage of fewer layers with small(-ish) embedding size is the less memory is spent for kv (context) cache,
@@ -148,7 +148,7 @@ class FeedForward(nn.module): #acts like a map k:v where k is the input text n v
     def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 # ----------------------------------Block---------------------------------------------------
-class Block(nn.module):
+class Block(nn.Module):
     def __inint__(self, args: ModelArgs):
         super().__init__()
         self.n_heads = args.n_heads

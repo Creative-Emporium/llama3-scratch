@@ -39,7 +39,8 @@ class ModelArgs:
         assert self.n_kv_heads <= self.n_heads
         assert self.n_heads % self.n_kv_heads == 0, f'Use NICE numbers for your heads!'
         assert self.dim % self.n_heads == 0, f'Make sure to use dividable num_embed and num_heads!'
-        
+# ----------------------------------KV CACHE--------------------------------------------
+
 # ----------------------------------Positional Embeding--------------------------------------------
 def apply_rotary_emb():
     pass

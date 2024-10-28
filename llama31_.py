@@ -40,6 +40,14 @@ class ModelArgs:
         assert self.n_heads % self.n_kv_heads == 0, f'Use NICE numbers for your heads!'
         assert self.dim % self.n_heads == 0, f'Make sure to use dividable num_embed and num_heads!'
         
+# ----------------------------------Positional Embeding--------------------------------------------
+def apply_rotary_emb():
+    pass
+
+# ----------------------------------GQA-------------------------------------------------------------
+def repeat_kv():
+    pass
+
 # ----------------------------------Main RMSNorm---------------------------------------------------
 class RMSNorm(nn.Module):
     """
@@ -60,8 +68,60 @@ class RMSNorm(nn.Module):
         return out * self.weights
 # ----------------------------------attention---------------------------------------------------
 class Attention(nn.Module):
-    pass
-
+    def __init__(self, args: ModelArgs):
+        super().__init__()
+        self.flash = args.flash
+        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads #for GQA
+        model_parallize = 1 #for 1 gpu 
+        self.n_local_heads = args.n_heads //  model_parallize #heads per GPU
+        self.n_local_kv_head = self.kv_heads // model_parallize
+        self.n_rep = self.n_local_heads // self.n_local_kv_head
+        self.head_dim = args.dim // args.n_heads #the embed dim each head in ech GPU will recieve!
+        
+        self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False) # (T, )
+        self.wk = nn.linear(args.dim, self.n_kv_heads * self.head_dim, bias=False) # to support Grouped Query 
+        self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+        self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
+        
+        # for KV Cache 
+        self.cache = None
+        
+    def forward(self, x, start_pos, freqs_cis, mask):
+        #TODO: Add KV Cache
+        B, T, C = x.shape #(batch_size, seq_len, dim)
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        
+        xq = xq.view(B, T, self.n_local_heads, self.head_dim) 
+        xk = xk.view(B, T, self.n_kv_heads, self.head_dim)
+        xv = xv.view(B, T, self.n_kv_heads, self.head_dim)
+        
+        #apply Rotatory Embeding (Positional embed); rotate query, keys (RoPE)
+        xq = apply_rotary_emb(xq, freqs_cis)
+        xk = apply_rotary_emb(xk, freqs_cis)
+        
+        # KV cache update
+        if self.cache is not None:
+            # update the KV cache with current KV and get all the previous KVs
+            xk, xv = self.cache.update(start_pos, xk, xv)
+        # repeat k/v heads if n_kv_heads < n_heads (GQA)
+        xk = repeat_kv(xk, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
+        xv = repeat_kv(xv, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
+        # make heads be a batch dim
+        xq, xk, xv = (x.transpose(1, 2) for x in (xq, xk, xv)) #(B, T, nh, hs) --T--> (B, nh, T, hs)
+        # attention
+        if self.flash:
+            output = F.scaled_dot_product_attention(xq, xk, xv, mask)
+        else:
+            scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
+            if mask is not None:
+                scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
+            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+        # concatenate all the heads
+        output = output.transpose(1, 2).contiguous().view(B, T, -1)
+        # output projection
+        proj = self.wo(output)
+        return proj     
 # ----------------------------------FFN---------------------------------------------------
 class FeedForward(nn.module): #acts like a map k:v where k is the input text n v is the distribution over the output vocab!
     """Because reaching a given parameter count (e.g. 2B) with a given embedding size (e.g. 2048) you need 
@@ -80,9 +140,9 @@ class FeedForward(nn.module): #acts like a map k:v where k is the input text n v
         if ffn_dim_multiplier is not None:
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of) #to make it NICE num
-        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
-        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
-        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False) #project_gate
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False) #project_up
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False) #project_down
         
     def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
@@ -94,17 +154,22 @@ class Block(nn.module):
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
         self.attention = Attention(args)
-        self.mlp = FeedForward()
+        self.mlp = FeedForward(
+            dim = args.dim,
+            hidden_dim= 4 * args.hidden_dim,
+            multiple_of = args.multiple_of,
+            ffn_dim_multiplier=args.ffn_dim_multiplie)
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.mlp_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
-    def forward(self, x:torch.Tensor,  start_pos: int,freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],):
+    def forward(self, x:torch.Tensor,  start_pos, freqs_cis, mask: Optional[torch.Tensor],):
         h = x + self.attention(self.attention_norm(x, start_pos, freqs_cis, mask))
         out = h + self.mlp(self.mlp_norm(x))
         return out
 # ----------------------------------Main TF---------------------------------------------------
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):
+        #TODO: ADD self.freqs_cis   
         super().__init__()
         self.params = params 
         self.vocab_size = params.vocab_size
@@ -114,7 +179,6 @@ class Transformer(nn.Module):
         self.layers = nn.ModuleList(list(Block(params) for _ in range(params.n_layers)))
         self.norm = RMSNorm(params.dim)
         self.lm_head = nn.Linear(params.dim, params.vocab_size, bias=False)
-        #TODO: ADD self.freqs_cis   
 
     def forward(): #logits + loss
         pass

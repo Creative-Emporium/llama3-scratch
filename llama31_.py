@@ -39,6 +39,7 @@ class ModelArgs:
         assert self.n_kv_heads <= self.n_heads
         assert self.n_heads % self.n_kv_heads == 0, f'Use NICE numbers for your heads!'
         assert self.dim % self.n_heads == 0, f'Make sure to use dividable num_embed and num_heads!'
+
 # ----------------------------------Rotatary Positional Embeding----------------------------------
 def apply_scaling(freqs: torch.Tensor):
     # RoPE scaling (values obtained from grid search)
@@ -91,10 +92,6 @@ def apply_rotary_emb(x, freqs_cis):
     # x_out2 is now (B, T, n_heads, head_dim), e.g. (4, 8, 32, 128)
     return x_out2.type_as(x)
 
-# ----------------------------------KV CACHE--------------------------------------------
-def repeat_kv():
-    pass
-
 # ----------------------------------Main RMSNorm---------------------------------------------------
 class RMSNorm(nn.Module):
     """
@@ -113,6 +110,30 @@ class RMSNorm(nn.Module):
         #Returns this tensor cast to the type of the given tensor. Equivalent to self.type(tensor.type())
         out = self._norm(float(x)).type_as(x)
         return out * self.weights
+
+# ----------------------------------for GQA?------------------------------------------------------
+def repeat_kv(x, n_rep):
+    (bsize, Tseqlen, n_kv_heads, h_dim) = x.shape
+    if n_rep ==1:#regular multi-head attention
+        return x 
+    return (x[:,:,None,:].expand(bsize, Tseqlen, n_rep, h_dim).reshape(bsize, Tseqlen, n_kv_heads * n_rep , h_dim))
+
+# ----------------------------------KV CACHE------------------------------------------------------  
+class KVCache(nn.Module):
+    def __init__(self, batch_size, seq_len, n_kv_heads, head_dim, dtype, device):
+        super().__init__()
+        cache_shape = (batch_size, seq_len, n_kv_heads, head_dim) #(B,T,nh, hs)
+        self.register_buffer('cache_k', torch.zeros(cache_shape, dtype=dtype, device=device))
+        self.register_buffer('cache_v', torch.zeros(cache_shape, dtype=dtype, device=device))
+        
+    def update(self, start_pos, xk, xv):
+        seqlen = xk.size(1)
+        self.cache_k[:, start_pos: start_pos + seqlen] = xk
+        self.cache_v[:, start_pos: start_pos + seqlen] = xv
+        xk = self.cache_k[:, :  start_pos + seqlen] # (B,T,nh, hs)
+        xv = self.cache_v[:, :  start_pos + seqlen] # (B,T,nh, hs)
+        return xk, xv
+
 # ----------------------------------attention---------------------------------------------------
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
@@ -122,7 +143,7 @@ class Attention(nn.Module):
         model_parallize = 1 #for 1 gpu 
         self.n_local_heads = args.n_heads //  model_parallize #heads per GPU
         self.n_local_kv_head = self.kv_heads // model_parallize
-        self.n_rep = self.n_local_heads // self.n_local_kv_head
+        self.n_rep = self.n_local_heads // self.n_local_kv_head # for repeat_cache for GQA
         self.head_dim = args.dim // args.n_heads #the embed dim each head in ech GPU will recieve!
         
         self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False) # (T, )
@@ -134,7 +155,6 @@ class Attention(nn.Module):
         self.cache = None
         
     def forward(self, x, start_pos, freqs_cis, mask):
-        #TODO: Add KV Cache
         B, T, C = x.shape #(batch_size, seq_len, dim)
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         xq = xq.view(B, T, self.n_local_heads, self.head_dim) 

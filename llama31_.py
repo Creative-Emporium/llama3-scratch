@@ -133,7 +133,6 @@ class KVCache(nn.Module):
         xk = self.cache_k[:, :  start_pos + seqlen] # (B,T,nh, hs)
         xv = self.cache_v[:, :  start_pos + seqlen] # (B,T,nh, hs)
         return xk, xv
-
 # ----------------------------------attention---------------------------------------------------
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
